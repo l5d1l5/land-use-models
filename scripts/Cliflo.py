@@ -78,8 +78,9 @@ class Cliflo:
         """Initalises the Class and establishes the database. Option to not set up a database with kwarg input
         connect_db = False however if you want to execute the key methods to a database this need toe be True.
 
-        :param kwargs: - connect_db: Default is set to true. Otherwise all other kwargs are self explanatory.
-                       - See below for rest. All kwargs are set up to establish the username, password, and database.
+        :param kwargs:
+            - connect_db: Default is set to true. Otherwise all other kwargs are self explanatory.
+            - See below for rest. All kwargs are set up to establish the username, password, and database.
         """
 
         # kwargs
@@ -123,16 +124,17 @@ class Cliflo:
         cf_get_stations method. This is then filtered further buy removing any stations that are outside the constraints
         outlined in the kwargs by using the clean_stations method.
 
-        :param kwargs: - destination_folder: where to save the csv file.
-                       - data_type: keyword for the data_type_dict so either 'rainfall', 'sunshine_hours' etc.  Dict is
-                                    used to execute other commands in selenium
-                       - start_year & end_year: filter out stations whose data does not fit in between these years.
-                       - min_perc_complete: percentage complete of
-                       - file_name: name of file that will be saved
-                       - table_name: if using a database, what table to store the data in.
-                       - use_file: if you already have a file containing the stations you want use that instead of
-                                   generating a list again. Must be in same format as was downloaded from Cliflo.
-                       - to_excel: if set to True, send dataframe of results to excel. Default set to True.
+        :param kwargs:
+            - destination_folder: where to save the csv file.
+            - data_type: keyword for the data_type_dict so either 'rainfall', 'sunshine_hours' etc.  Dict is
+                         used to execute other commands in selenium
+            - start_year & end_year: filter out stations whose data does not fit in between these years.
+            - min_perc_complete: percentage complete of
+            - file_name: name of file that will be saved
+            - table_name: if using a database, what table to store the data in.
+            - use_file: if you already have a file containing the stations you want use that instead of
+                        generating a list again. Must be in same format as was downloaded from Cliflo.
+            - to_excel: if set to True, send dataframe of results to excel. Default set to True.
 
         :return: a dataframe of the stations
         """
@@ -170,9 +172,19 @@ class Cliflo:
         """
 
         :param kwargs:
-                station_file: - the file that has the list of stations to search through.
-                destiantion_file: where to send the cleaned file.
-                data_type: which data you want to extract. options are in the self.data_type_dict
+            - stations: the excel file that has the list of stations to search through. Should be in same format
+                            as the extract stations. It can also be the dataframe that is
+                            returned from extract stations.
+            - to_folder: where to send the station data file.
+            - data_type: keyword for the data_type_dict so either 'rainfall', 'sunshine_hours' etc.  Dict is
+                         used to execute other commands in selenium.
+            - freq: options for daily, monthly etc. Default is set to daily.
+            - start_year & end_year: take yearly data for each year between (and including) the start and end years.
+            - table_name: SQL table to update with values
+            - use_existing_data: Only add new data to table, if data already exists for that station day etc ignore it.
+            - csv_only: If True, only retun data as a CSV and do not bother with the database component.
+                        Default is False.
+            - station_table_name: name of table to store data is csv_only is set to False.
 
         :return:
         """
@@ -181,7 +193,7 @@ class Cliflo:
         station_info = kwargs.get('stations', 'NA')
         destination_folder = kwargs.get('to_folder', 'NA')
         data_type = kwargs.get('data_type', 'rainfall')
-        data_freq = kwargs.get('freq','daily')
+        data_freq = kwargs.get('freq', 'daily')
         start_year = kwargs.get('start_year', 1988)
         end_year = kwargs.get('end_year', 2018)
         table_name = kwargs.get('table_name', 'niwa_rainfall')
@@ -189,18 +201,17 @@ class Cliflo:
         csv_only = kwargs.get('csv_only', False)
         station_table_name = kwargs.get('station_table_name', 'NA')
 
-
        # Get list of staions to query.
         if type(station_info) is str:
             stations = pd.read_excel(station_info)
         else:
             stations = station_info
-
+        #list of stations to search on Cliflo
         station_list = stations['AgentNumber']
-
         # Connect to NIWA and select the type of data we want.
         driver, main_window_handle = Cliflo.cf_login(self)
         driver, main_window_handle = Cliflo.cf_specify_data(data_type, driver, main_window_handle)
+
         if self.engine.dialect.has_table(self.engine, table_name):
             Table = type('Station_Obs_Class', (self.Base,),  {'__tablename__': table_name})
         else:
@@ -208,19 +219,18 @@ class Cliflo:
 
         print(Table)
         TableX = type('Table_X_classname', (self.Base,), {'__tablename__': station_table_name})
+
         for station_id in station_list:
             #if table exisits, get years not in table for given station
             year_list = Cliflo.create_year_list(self, table_name, station_id, start_year, end_year, csv_only,
                                                 use_existing_data, Table, TableX)
+
             [Cliflo.run_data_update(self, driver, station_id, year, data_type, data_freq, table_name,
                                     destination_folder, main_window_handle, use_existing_data, csv_only, TableX,
                                     year_list)
              for year in year_list if year_list]
 
         driver.quit()
-
-
-
 
     def cf_get_stations(self, data_type):
 
