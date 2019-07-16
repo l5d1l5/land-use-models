@@ -53,8 +53,10 @@ class Cliflo:
                                            where column name is the colum name in Cliflo, and list of columns to keep
                                            is what columns to keep from the downloaded Cliflo dataset.
 
-    Key Methods:     - Cliflo.extract_stations:
-                     - Cliflo.
+    Key Methods:     - Cliflo.extract_stations: returns a list of relevant weather stations names,
+                       latitide and longitude as a df and/or excel file.
+                     - Cliflo.update_data: TODO
+                     - Cliflo.closest_station: TODO
     """
 
     data_type_dict = {'rainfall': ['Precipitation', "Rain (fixed periods)"],
@@ -81,7 +83,7 @@ class Cliflo:
         """
 
         # kwargs
-        self.connect_db = kwargs.get('connect_db',True)
+        self.connect_db = kwargs.get('connect_db', True)
         self.webdriver = kwargs.get('webdriver','C:/webdrivers/chromedriver.exe')
         self.cf_username = kwargs.get('username', 'NA')
         self.cf_pw = kwargs.get('password', 'NA')
@@ -115,47 +117,26 @@ class Cliflo:
             self.Base.metadata.reflect(self.engine)
             self.station_df = pd.DataFrame(columns=['stations'])
 
-    @staticmethod
-    def clean_stations(df, start_year, end_year, min_perc_complete):
-
-        df.columns = df.iloc[0]
-        df.drop(0, axis=0, inplace=True)
-        df.reset_index(inplace=True)
-        df.drop(['Select', 'index'], axis=1, inplace=True)
-        df['start_day'], df['start_month'], df['start_year'] = \
-            df['Start Date'].astype(str).str.split('-', 2).str
-        df['end_day'], df['end_month'], df['end_year'] = \
-            df['End Date'].astype(str).str.split('-', 2).str
-
-        df.rename(columns={'Lat(dec deg)': 'lat', 'Long(dec deg)': 'long', 'AgentNumber': 'AgentNumber'}, inplace=True)
-        cols = ['start_day', 'start_year', 'end_day', 'end_year', 'PercentComplete']
-        df[cols] = df[cols].apply(pd.to_numeric, errors='coerce')
-
-        # filtering dataframe #
-        x_filtered = df[(df['start_year'] <= start_year) &
-                        (df['end_year'] >= end_year) &
-                        (df['PercentComplete'] >= min_perc_complete)]
-
-        return x_filtered
-
-    def update_lat_long(self, df, station_table_name):
-
-        TableY = type('Table_Y_classname', (self.Base,), {'__tablename__': station_table_name})
-
-        for station in df['AgentNumber']:
-            self.session.query(TableY).filter(TableY.stations == str(station)).update(
-                {'lat': df.loc[df['AgentNumber'] == station, 'lat'].values[0],
-                 'long':df.loc[df['AgentNumber'] == station, 'long'].values[0]})
-            self.session.commit()
-
     def extract_stations(self, **kwargs):
         """
-        Searches the list of NIWA weather stations to get stations taht match certain criteia. This list is then used
-        to querey the data for each station.
-        :param kwargs:
-        :return:
+        Searches the list of NIWA weather stations to return stations that match a data type i.e rainfall via the
+        cf_get_stations method. This is then filtered further buy removing any stations that are outside the constraints
+        outlined in the kwargs by using the clean_stations method.
+
+        :param kwargs: - destination_folder: where to save the csv file.
+                       - data_type: keyword for the data_type_dict so either 'rainfall', 'sunshine_hours' etc.  Dict is
+                                    used to execute other commands in selenium
+                       - start_year & end_year: filter out stations whose data does not fit in between these years.
+                       - min_perc_complete: percentage complete of
+                       - file_name: name of file that will be saved
+                       - table_name: if using a database, what table to store the data in.
+                       - use_file: if you already have a file containing the stations you want use that instead of
+                                   generating a list again. Must be in same format as was downloaded from Cliflo.
+                       - to_excel: if set to True, send dataframe of results to excel. Default set to True.
+
+        :return: a dataframe of the stations
         """
-        print('extract_stations')
+
         destination_folder = kwargs.get('to_folder', 'NA')
         data_type = kwargs.get('data_type', 'rainfall')
         start_year = kwargs.get('start_year', 1988)
@@ -164,26 +145,87 @@ class Cliflo:
         file_name = kwargs.get('file_name', 'station_data_filtered')
         table_name = kwargs.get('station_table_name',  'NA')
         use_file = kwargs.get('use_file', False)
+        create_excl_file = kwargs.get('to_excel', True)
 
         if use_file:
             df_clean = pd.read_excel(use_file)
         else:
+            # Get all stations for a given data_type
             df = Cliflo.cf_get_stations(self, data_type)
-            # Cleaning Dataset #
+            # filter out stations using kwargs then send to excel.
             df_clean = Cliflo.clean_stations(df, start_year, end_year, min_perc_complete)
+            if create_excl_file:
+                df_clean.to_excel(destination_folder + '\\' + file_name + '.xlsx')
 
-            df_clean.to_excel(destination_folder + '\\' + file_name + '.xlsx')
+        if self.connect_db:
+            # If there is no stations table, create one, then update the latidute and longitued of each station in the
+            # table
+            if not self.engine.dialect.has_table(self.engine, table_name):
+                Cliflo.create_stations_table(self, df_clean, start_year, end_year, data_type, table_name)
+            Cliflo.update_lat_long(self, df_clean, table_name)
 
-        if not self.engine.dialect.has_table(self.engine, table_name):
-            Cliflo.create_stations_table(self, df_clean, start_year, end_year, data_type, table_name)
+        return df_clean
 
-        Cliflo.update_lat_long(self, df_clean, table_name)
+    def update_data(self, **kwargs):
+        """
+
+        :param kwargs:
+                station_file: - the file that has the list of stations to search through.
+                destiantion_file: where to send the cleaned file.
+                data_type: which data you want to extract. options are in the self.data_type_dict
+
+        :return:
+        """
+        #### USER INPUTS ####
+        print('running update')
+        station_info = kwargs.get('stations', 'NA')
+        destination_folder = kwargs.get('to_folder', 'NA')
+        data_type = kwargs.get('data_type', 'rainfall')
+        data_freq = kwargs.get('freq','daily')
+        start_year = kwargs.get('start_year', 1988)
+        end_year = kwargs.get('end_year', 2018)
+        table_name = kwargs.get('table_name', 'niwa_rainfall')
+        use_existing_data = kwargs.get('use_existing_data', True)
+        csv_only = kwargs.get('csv_only', False)
+        station_table_name = kwargs.get('station_table_name', 'NA')
+
+
+       # Get list of staions to query.
+        if type(station_info) is str:
+            stations = pd.read_excel(station_info)
+        else:
+            stations = station_info
+
+        station_list = stations['AgentNumber']
+
+        # Connect to NIWA and select the type of data we want.
+        driver, main_window_handle = Cliflo.cf_login(self)
+        driver, main_window_handle = Cliflo.cf_specify_data(data_type, driver, main_window_handle)
+        if self.engine.dialect.has_table(self.engine, table_name):
+            Table = type('Station_Obs_Class', (self.Base,),  {'__tablename__': table_name})
+        else:
+            Table = False
+
+        print(Table)
+        TableX = type('Table_X_classname', (self.Base,), {'__tablename__': station_table_name})
+        for station_id in station_list:
+            #if table exisits, get years not in table for given station
+            year_list = Cliflo.create_year_list(self, table_name, station_id, start_year, end_year, csv_only,
+                                                use_existing_data, Table, TableX)
+            [Cliflo.run_data_update(self, driver, station_id, year, data_type, data_freq, table_name,
+                                    destination_folder, main_window_handle, use_existing_data, csv_only, TableX,
+                                    year_list)
+             for year in year_list if year_list]
+
+        driver.quit()
+
+
+
 
     def cf_get_stations(self, data_type):
 
         driver, main_window_handle = Cliflo.cf_login(self)
         driver, main_window_handle = Cliflo.cf_specify_data(data_type, driver, main_window_handle)
-
         driver.switch_to.window(main_window_handle)
         driver.find_element_by_name('agent').click()
         time.sleep(1)
@@ -202,12 +244,42 @@ class Cliflo:
         driver.find_element_by_name('Submit').click()
         time.sleep(1)
         driver.switch_to.window(driver.window_handles[-1])
-
         cf_station_df = Cliflo.cf_get_data(driver, data='station_list')
-
         driver.quit()
 
         return cf_station_df
+
+
+    @staticmethod
+    def clean_stations(df, start_year, end_year, min_perc_complete):
+
+        df.columns = df.iloc[0]
+        df.drop(0, axis=0, inplace=True)
+        df.reset_index(inplace=True)
+        df.drop(['Select', 'index'], axis=1, inplace=True)
+        df['start_day'], df['start_month'], df['start_year'] = \
+            df['Start Date'].astype(str).str.split('-', 2).str
+        df['end_day'], df['end_month'], df['end_year'] = \
+            df['End Date'].astype(str).str.split('-', 2).str
+        df.rename(columns={'Lat(dec deg)': 'lat', 'Long(dec deg)': 'long', 'AgentNumber': 'AgentNumber'}, inplace=True)
+        cols = ['start_day', 'start_year', 'end_day', 'end_year', 'PercentComplete']
+        df[cols] = df[cols].apply(pd.to_numeric, errors='coerce')
+
+        # filtering dataframe #
+        x_filtered = df[(df['start_year'] <= start_year) &
+                        (df['end_year'] >= end_year) &
+                        (df['PercentComplete'] >= min_perc_complete)]
+
+        return x_filtered
+
+    def update_lat_long(self, df, station_table_name):
+
+        TableY = type('Table_Y_classname', (self.Base,), {'__tablename__': station_table_name})
+        for station in df['AgentNumber']:
+            self.session.query(TableY).filter(TableY.stations == str(station)).update(
+                {'lat': df.loc[df['AgentNumber'] == station, 'lat'].values[0],
+                 'long':df.loc[df['AgentNumber'] == station, 'long'].values[0]})
+            self.session.commit()
 
     def create_stations_table(self, stations_df, start_year, end_year, data_type, table_name):
 
@@ -354,59 +426,6 @@ class Cliflo:
         col_name = data_type + '_' + str(year)
         self.session.query(TableX).filter(TableX.stations == str(station_id)).update({col_name: str(entry_status)})
         self.session.commit()
-
-    def update_data(self, **kwargs):
-        """
-
-        :param kwargs:
-                station_file: - the file that has the list of stations to search through.
-                destiantion_file: where to send the cleaned file.
-                data_type: which data you want to extract. options are in the self.data_type_dict
-
-        :return:
-        """
-        #### USER INPUTS ####
-        print('running update')
-        station_info = kwargs.get('stations', 'NA')
-        destination_folder = kwargs.get('to_folder', 'NA')
-        data_type = kwargs.get('data_type', 'rainfall')
-        data_freq = kwargs.get('freq','daily')
-        start_year = kwargs.get('start_year', 1988)
-        end_year = kwargs.get('end_year', 2018)
-        table_name = kwargs.get('table_name', 'niwa_rainfall')
-        use_existing_data = kwargs.get('use_existing_data', True)
-        csv_only = kwargs.get('csv_only', False)
-        station_table_name = kwargs.get('station_table_name', 'NA')
-
-
-       # Get list of staions to query.
-        if type(station_info) is str:
-            stations = pd.read_excel(station_info)
-        else:
-            stations = station_info
-
-        station_list = stations['AgentNumber']
-
-        # Connect to NIWA and select the type of data we want.
-        driver, main_window_handle = Cliflo.cf_login(self)
-        driver, main_window_handle = Cliflo.cf_specify_data(data_type, driver, main_window_handle)
-        if self.engine.dialect.has_table(self.engine, table_name):
-            Table = type('Station_Obs_Class', (self.Base,),  {'__tablename__': table_name})
-        else:
-            Table = False
-
-        print(Table)
-        TableX = type('Table_X_classname', (self.Base,), {'__tablename__': station_table_name})
-        for station_id in station_list:
-            #if table exisits, get years not in table for given station
-            year_list = Cliflo.create_year_list(self, table_name, station_id, start_year, end_year, csv_only,
-                                                use_existing_data, Table, TableX)
-            [Cliflo.run_data_update(self, driver, station_id, year, data_type, data_freq, table_name,
-                                    destination_folder, main_window_handle, use_existing_data, csv_only, TableX,
-                                    year_list)
-             for year in year_list if year_list]
-
-        driver.quit()
 
     def cf_login(self):
 

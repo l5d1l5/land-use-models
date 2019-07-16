@@ -986,6 +986,7 @@ class NutrientInputs:
 class EnvironmentInputs:
 
     def __init__(self, **kwargs):
+        pass
     pass
 
 
