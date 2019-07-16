@@ -1,4 +1,5 @@
 import lucm_ETL as ETL
+import os
 
 extract_data = 'Cliflo'
 extract = True #Means it will extrat data from NIWA.
@@ -37,8 +38,8 @@ def main():
         if extract_data == 'Cliflo':
             
             #Set up cliflo session with username and password
-            cliflo = ETL.Cliflo(username='mamirodata',
-                                password='&MaM!r0niwa&',
+            cliflo = ETL.Cliflo(username=os.environ.get('CLIFLO_USER'),
+                                password=os.environ.get('CLIFLO_PW'),
                                 db_name='sandpit', # optional if wanting to extract data to a database
                                 db_user_name='postgres',
                                 db_user_password='&MaM!r0postgres&')
