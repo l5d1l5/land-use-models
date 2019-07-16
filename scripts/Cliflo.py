@@ -169,7 +169,8 @@ class Cliflo:
         return df_clean
 
     def update_data(self, **kwargs):
-        """
+        """given a list of stations this method uses selenium to then access the weather data for each year and data
+        type specified. THis is th main function of the clifo class.
 
         :param kwargs:
             - stations: the excel file that has the list of stations to search through. Should be in same format
@@ -181,7 +182,7 @@ class Cliflo:
             - freq: options for daily, monthly etc. Default is set to daily.
             - start_year & end_year: take yearly data for each year between (and including) the start and end years.
             - table_name: SQL table to update with values
-            - use_existing_data: Only add new data to table, if data already exists for that station day etc ignore it.
+            - use_existing_data: Only add new data if exixing data is not already downloaded.
             - csv_only: If True, only retun data as a CSV and do not bother with the database component.
                         Default is False.
             - station_table_name: name of table to store data is csv_only is set to False.
@@ -221,7 +222,7 @@ class Cliflo:
         TableX = type('Table_X_classname', (self.Base,), {'__tablename__': station_table_name})
 
         for station_id in station_list:
-            #if table exisits, get years not in table for given station
+            # if table exists, get years not in table for given station
             year_list = Cliflo.create_year_list(self, table_name, station_id, start_year, end_year, csv_only,
                                                 use_existing_data, Table, TableX)
 
@@ -231,6 +232,59 @@ class Cliflo:
              for year in year_list if year_list]
 
         driver.quit()
+
+    def run_data_update(self, driver, station_id, year, data_type, data_freq, table_name,
+                        destination_folder, main_window_handle, use_existing_data, csv_only, TableX, year_list):
+
+        # TODO run to db for all downloaded files html and csv files in a folder
+        """
+        Method does the following things based on conditions:
+
+        1. If csv file for the data is already downloaded uploads that csv rather than downloading it
+        if user specifies Use Existing if True
+        2. If user says Use Exisitng as False or CSV does not exist the update will download from NIWA the
+            sation data.
+
+        :param driver: selenium webdriver
+        :param station_id: id of station to access
+        :param year: year to extract
+        :param data_type: type of data we are getting (rainfall, sunshine hours etc.
+        :param data_freq: daily monthly etc (currently can only do daily)
+        :param table_name: name of table in database we are updating
+        :param destination_folder: name of folder we want to save any new csv downloads
+        :param main_window_handle: used in selenium webdriver to access the main page of Cliflo
+        :return:
+        """
+        print('data update - station: ' + str(station_id) + ', year: ' + str(year))
+        file_name = 'station ' + str(station_id) + ' - ' + data_type + ' - ' + data_freq + ' (' + str(year) \
+                    + ' - ' + str(year + 1) + ')'
+
+
+        if year == year_list[0]:
+            driver = Cliflo.cf_get_station_data(driver, main_window_handle, station_id)
+
+        # check if data already downloaded (return True) or if file is empty or does not exist(return False).
+        cf_df = Cliflo.file_to_df_if_exists(destination_folder, file_name)
+        if cf_df is False:
+            print('getting data from CliFlo...')
+            # Executes a few different methods that makes extracting the data from Cliflo more efficient and then
+            # sends data as a csv.
+            Cliflo.cf_change_year(driver, main_window_handle, year)
+            cf_df = Cliflo.cf_get_data(driver, data='station_obs', data_type=data_type)
+            Cliflo.cf_data_to_csv(cf_df, destination_folder, file_name)
+            driver.back()
+
+        #Excute a basic cleaning scrips on the downloaded data.
+        cf_df = Cliflo.station_obs_quick_clean(cf_df)
+
+        # if there is data and we want to alo put it into a database...
+        if not cf_df.empty and not csv_only:
+            Cliflo.df_to_db(self, cf_df, table_name, data_type, station_id, year, use_existing_data)
+            print('sent to database')
+
+        # Storing status of operation in Stations DF so if the entry is empty in future it will not call it again.
+        output = Cliflo.analyse_cf_data(cf_df, data_type, Cliflo.station_clean_dict[data_type][1][0])
+        Cliflo.update_stations_table(self, output, station_id, year, data_type, TableX)
 
     def cf_get_stations(self, data_type):
 
@@ -258,7 +312,6 @@ class Cliflo:
         driver.quit()
 
         return cf_station_df
-
 
     @staticmethod
     def clean_stations(df, start_year, end_year, min_perc_complete):
@@ -381,55 +434,6 @@ class Cliflo:
                 df = False
 
         return df
-
-    def run_data_update(self, driver, station_id, year, data_type, data_freq, table_name,
-                        destination_folder, main_window_handle, use_existing_data, csv_only, TableX, year_list):
-
-        # TODO run to db for all downloaded files html and csv files in a folder
-        """
-        Method does the following things based on conditions:
-
-        1. If csv file for the data is already downloaded:
-            uploads that csv rather than downloading it if user specifies Use Existing if True
-        2. If user says Use Exisitng as False or in CSV does not exist the update will download from NIWA the
-            sation data.
-
-        :param driver: selnium webdriver
-        :param station_id:
-        :param year:
-        :param data_type: type of data we are getting (rainfall, sunshine hours etc.
-        :param data_freq: daily monthly etc (currently can only do daily)
-        :param table_name: name of table in database we are updating
-        :param destination_folder: name of folder we want to save any new csv downloads
-        :param main_window_handle: used in selenium webdriver to access the main page of Cliflo
-        :return:
-        """
-        print('data update - station: ' + str(station_id) + ', year: ' + str(year))
-        file_name = 'station ' + str(station_id) + ' - ' + data_type + ' - ' + data_freq + ' (' + str(year) \
-                    + ' - ' + str(year + 1) + ')'
-
-        cf_df = Cliflo.file_to_df_if_exists(destination_folder, file_name)
-
-        if year == year_list[0]:
-            driver = Cliflo.cf_get_station_data(driver, main_window_handle, station_id)
-
-        # download data from NIWA if csv is not already downloaded or if the downloaded file is empty
-        if cf_df is False:
-            print('getting data from CliFlo...')
-            Cliflo.cf_change_year(driver, main_window_handle, year)
-            cf_df = Cliflo.cf_get_data(driver, data='station_obs', data_type=data_type)
-            Cliflo.cf_data_to_csv(cf_df, destination_folder, file_name)
-            driver.back()
-
-        cf_df = Cliflo.station_obs_quick_clean(cf_df)
-
-        if not cf_df.empty and not csv_only:
-            Cliflo.df_to_db(self, cf_df, table_name, data_type, station_id, year, use_existing_data)
-            print('sent to database')
-
-        # Storing status of operation in Stations DF so if the entry is empty in future it will not call it.
-        output = Cliflo.analyse_cf_data(cf_df, data_type,Cliflo.station_clean_dict[data_type][1][0])
-        Cliflo.update_stations_table(self, output, station_id, year, data_type, TableX)
 
     def update_stations_table(self, entry_status, station_id, year, data_type, TableX):
         print('updating stations table...')
