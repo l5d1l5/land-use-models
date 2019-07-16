@@ -983,6 +983,12 @@ class NutrientInputs:
     pass
 
 
+class EnvironmentInputs:
+
+    def __init__(self, **kwargs):
+    pass
+
+
 ####################
 # USEFUL FUNCTIONS #
 ####################

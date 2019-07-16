@@ -1,4 +1,4 @@
-import lucm_ETL as ETL
+import Cliflo as CF
 import os
 
 extract_data = 'Cliflo'
@@ -38,11 +38,11 @@ def main():
         if extract_data == 'Cliflo':
             
             #Set up cliflo session with username and password
-            cliflo = ETL.Cliflo(username=os.environ.get('CLIFLO_USER'),
-                                password=os.environ.get('CLIFLO_PW'),
-                                db_name='sandpit', # optional if wanting to extract data to a database
-                                db_user_name='postgres',
-                                db_user_password='&MaM!r0postgres&')
+            cliflo = CF.Cliflo(username=os.environ.get('CLIFLO_USER'),
+                               password=os.environ.get('CLIFLO_PW'),
+                               db_name='sandpit', # optional if wanting to extract data to a database
+                               db_user_name=os.environ.get('POSTGRES_USER'),
+                               db_user_password=os.environ.get('POSTGRES_PW'))
 
             if extract:
                 # Works out what stations we want to use from Cliflo                

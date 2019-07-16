@@ -10,9 +10,10 @@ Maintained:    Yes
 Overview:      This script uses Selenium to remotely access weather information via Niwas Cliflo database. It also has
                some other nice features such as working out what weather station is closets of a given latitide and
                longitude.
+How to use:    TBC
 Requirements:  In addition to the below packages you will likley also need to install a webdriver which for Chrome
                can be accessed here: http://chromedriver.chromium.org/downloads
-TODO:        - Add method that allows for automatic reset of rows if login falls below 10,000
+TODO:          - Add method that allows for automatic reset of rows if login falls below 10,000.
 """
 
 ############
@@ -34,9 +35,9 @@ import time
 import pandas as pd
 import numpy as np
 
-#########
-# CLASS #
-#########
+###########
+# CLASSES #
+###########
 
 class Cliflo:
     """
@@ -63,24 +64,23 @@ class Cliflo:
     def __init__(self, **kwargs):
         self.webdriver = 'C:/webdrivers/chromedriver.exe'
         self.cf_website = 'https://cliflo.niwa.co.nz/'
-        self.cf_username = kwargs.get('username','NA')
-        self.cf_pw = kwargs.get('password','NA')
-        self.db_name = kwargs.get('db_name','sandpit')
-        self.db_user_name = kwargs.get('db_user_name', "postgres")
-        self.db_user_pw = kwargs.get('db_user_password', '&MaM!r0postgres&')
+        self.cf_username = kwargs.get('username', 'NA')
+        self.cf_pw = kwargs.get('password', 'NA')
+        self.db_name = kwargs.get('db_name', 'sandpit')
+        self.db_user_name = kwargs.get('db_user_name', os.environ.get('CLIFLO_USER'))
+        self.db_user_pw = kwargs.get('db_user_password', os.environ.get('CLIFLO_USER'))
+        self.host = kwargs.get('host',"127.0.0.1")
+        self.port = kwargs.get('port', '5432')
+        self.diver = kwargs.get('driver', 'psycopg2')
+        self.db_type = kwargs.get('db_type', 'postgresql')
 
-        host = "127.0.0.1"
-        port = "5432"
-        driver = 'psycopg2'
-        db_type = 'postgresql'
-
-        self.db_string = '%s+%s://%s:%s@%s:%s/%s' % (db_type,
-                                                driver,
-                                                self.db_user_name,
-                                                self.db_user_pw,
-                                                host,
-                                                port,
-                                                self.db_name)
+        self.db_string = '%s+%s://%s:%s@%s:%s/%s' % (self.db_type,
+                                                     self.driver,
+                                                     self.db_user_name,
+                                                     self.db_user_pw,
+                                                     self.host,
+                                                     self.port,
+                                                     self.db_name)
 
         self.station_info_table_name = kwargs.get('stations_table_name', 'station_info_test_v2')
 
@@ -92,8 +92,8 @@ class Cliflo:
         self.Base.metadata.reflect(self.engine)
         self.station_df = pd.DataFrame(columns=['stations'])
 
-    def clean_stations(self, df, destination_folder, start_year, end_year, min_perc_complete, file_name,
-                       table_name, data_type):
+    @staticmethod
+    def clean_stations(df, start_year, end_year, min_perc_complete):
 
         df.columns = df.iloc[0]
         df.drop(0, axis=0, inplace=True)
@@ -147,8 +147,7 @@ class Cliflo:
         else:
             df = Cliflo.cf_get_stations(self, data_type)
             # Cleaning Dataset #
-            df_clean = Cliflo.clean_stations(self, df,destination_folder, start_year, end_year,
-                                             min_perc_complete, file_name, table_name, data_type)
+            df_clean = Cliflo.clean_stations(df, start_year, end_year, min_perc_complete)
 
             df_clean.to_excel(destination_folder + '\\' + file_name + '.xlsx')
 
