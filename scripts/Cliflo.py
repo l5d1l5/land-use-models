@@ -7,12 +7,12 @@ Author:        Daniel Risi
 Date:          03/04/2019
 Status:        Completed
 Maintained:    Yes
-Overview:      This script uses Selenium to remotely access weather information via Niwas Cliflo database. It also has
-               some other nice features such as working out what weather station is closets of a given latitide and
-               longitude.
+Overview:      This script uses Selenium to remotely access weather information via Niwas Cliflo database (see
+               https://cliflo.niwa.co.nz/). It also has some other nice features such as working out what weather
+               station is closets of a given latitide and longitude.
 How to use:    TBC
-Requirements:  In addition to the below packages you will likley also need to install a webdriver which for Chrome
-               can be accessed here: http://chromedriver.chromium.org/downloads
+Requirements:  - A webdriver which for Chrome can be accessed here: http://chromedriver.chromium.org/downloads
+               - A niwa Cliflo account which can be sourced from https://cliflo.niwa.co.nz/
 TODO:          - Add method that allows for automatic reset of rows if login falls below 10,000.
 """
 
@@ -43,15 +43,26 @@ class Cliflo:
     """
     Cliflo accesses the NIWA Cliflo database, and preforms a variety of tasks on the website to download data.
     The program relies on selenium and will lilley need to have a webdriver installed to operate properly.
+
+    Class Variables: - data_type_dict: A python dictionary containing the broad category as the key and the specific
+                                       data sets that can be acced from each key. These are the same strings as in
+                                       Cliflo.
+
+                     - station_clean_dict: A python dictionary in the form:
+                                           {keyword: [{column name: new column name},[list of columns to keep]]}
+                                           where column name is the colum name in Cliflo, and list of columns to keep
+                                           is what columns to keep from the downloaded Cliflo dataset.
+
+    Key Methods:     - Cliflo.extract_stations:
+                     - Cliflo.
     """
 
     data_type_dict = {'rainfall': ['Precipitation', "Rain (fixed periods)"],
                       'sunshine_hours': ['Sunshine & Radiation', 'Sunshine'],
                       'temps': ['Temperature and Humidity', 'Max_min_temp'],
                       'soil_moisture': ['Evaporation / soil moisture', 'Soil-moisture'],
-                      'evaporation': ['Evaporation / soil moisture', 'Evaporation']
-                      }
-    # keywords: [{column name: new column name},[list of columns to keep]]
+                      'evaporation': ['Evaporation / soil moisture', 'Evaporation']}
+
     station_clean_dict = {'rainfall': [{'Amount(mm)': 'amount_mm', 'Station': 'station', 'Deficit(mm)': 'deficit_mm'},
                                        ['amount_mm', 'deficit_mm']],
                           'sunshine_hours': [{'Amount(Hrs)': 'amount_hrs', 'Station': 'station'},
@@ -62,35 +73,47 @@ class Cliflo:
                                           ['amount_mm']]}
 
     def __init__(self, **kwargs):
-        self.webdriver = 'C:/webdrivers/chromedriver.exe'
-        self.cf_website = 'https://cliflo.niwa.co.nz/'
+        """Initalises the Class and establishes the database. Option to not set up a database with kwarg input
+        connect_db = False however if you want to execute the key methods to a database this need toe be True.
+
+        :param kwargs: - connect_db: Default is set to true. Otherwise all other kwargs are self explanatory.
+                       - See below for rest. All kwargs are set up to establish the username, password, and database.
+        """
+
+        # kwargs
+        self.connect_db = kwargs.get('connect_db',True)
+        self.webdriver = kwargs.get('webdriver','C:/webdrivers/chromedriver.exe')
         self.cf_username = kwargs.get('username', 'NA')
         self.cf_pw = kwargs.get('password', 'NA')
         self.db_name = kwargs.get('db_name', 'sandpit')
         self.db_user_name = kwargs.get('db_user_name', os.environ.get('CLIFLO_USER'))
         self.db_user_pw = kwargs.get('db_user_password', os.environ.get('CLIFLO_USER'))
-        self.host = kwargs.get('host',"127.0.0.1")
+        self.host = kwargs.get('host', "127.0.0.1")
         self.port = kwargs.get('port', '5432')
         self.diver = kwargs.get('driver', 'psycopg2')
         self.db_type = kwargs.get('db_type', 'postgresql')
-
-        self.db_string = '%s+%s://%s:%s@%s:%s/%s' % (self.db_type,
-                                                     self.driver,
-                                                     self.db_user_name,
-                                                     self.db_user_pw,
-                                                     self.host,
-                                                     self.port,
-                                                     self.db_name)
-
         self.station_info_table_name = kwargs.get('stations_table_name', 'station_info_test_v2')
 
-        self.engine = create_engine(self.db_string, pool_size=50, max_overflow=0)
-        Session = sessionmaker(bind=self.engine)
-        self.session = Session()
-        self.Base = declarative_base()
-        # Look up the existing tables from database
-        self.Base.metadata.reflect(self.engine)
-        self.station_df = pd.DataFrame(columns=['stations'])
+        self.cf_website = 'https://cliflo.niwa.co.nz/'
+
+        if self.connect_db:
+            # Set up string to use for database connection.
+            self.db_string = '%s+%s://%s:%s@%s:%s/%s' % (self.db_type,
+                                                         self.driver,
+                                                         self.db_user_name,
+                                                         self.db_user_pw,
+                                                         self.host,
+                                                         self.port,
+                                                         self.db_name)
+
+            # Connecting to database
+            self.engine = create_engine(self.db_string, pool_size=50, max_overflow=0)
+            Session = sessionmaker(bind=self.engine)
+            self.session = Session()
+            self.Base = declarative_base()
+            # Look up the existing tables from database
+            self.Base.metadata.reflect(self.engine)
+            self.station_df = pd.DataFrame(columns=['stations'])
 
     @staticmethod
     def clean_stations(df, start_year, end_year, min_perc_complete):

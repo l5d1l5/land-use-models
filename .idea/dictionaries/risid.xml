@@ -2,11 +2,13 @@
   <dictionary name="risid">
     <words>
       <w>anlaysis</w>
+      <w>chromedriver</w>
       <w>cliflo</w>
       <w>environmenatal</w>
       <w>perc</w>
       <w>postgresql</w>
       <w>tablename</w>
+      <w>webdrivers</w>
     </words>
   </dictionary>
 </component>
